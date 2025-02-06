@@ -24,12 +24,12 @@ pip install -r requirements.txt
 ```
 
 3. Configure local credentials:
-    * rename `.env.template` to `.env`
+* rename `.env.template` to `.env`
 ```bash
      mv .env.template .env
 ```
-    * Add your credentials to the `.env` file
-    * Create a file called `key.json`
+* Add your credentials to the `.env` file
+* Create a file called `key.json`
 ```bash
 touch key.json
 ```
@@ -40,12 +40,6 @@ touch key.json
 python 1-extract_from_bq.py && python 2-populate.py
 ```
 
-### Local Execution
-
-```bash
-python 1-extract_from_bq.py  # Extract data from BigQuery
-python 2-populate.py         # Load data into Weaviate
-```
 
 ### Running in Production/Docker
 
