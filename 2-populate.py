@@ -1,237 +1,199 @@
 import os
 import json
 import weaviate
-from datetime import datetime
 from dotenv import load_dotenv
 from weaviate.auth import AuthApiKey
-from weaviate.classes.config import Property, Configure, DataType
 
-# Load environment variables from .env.local
-load_dotenv(".env.local")
+# Load environment variables from .env
+load_dotenv(".env")
 
-# Environment Variables or Defaults
+# Environment Variables
 WEAVIATE_CLUSTER_URL = os.getenv('WEAVIATE_CLUSTER_URL')
 WEAVIATE_API_KEY = os.getenv('WEAVIATE_API_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 # Validate API Keys
-if not WEAVIATE_CLUSTER_URL:
-    raise ValueError("Missing 'WEAVIATE_CLUSTER_URL' in environment variables.")
-if not WEAVIATE_API_KEY:
-    raise ValueError("Missing 'WEAVIATE_API_KEY' in environment variables.")
-if not OPENAI_API_KEY:
-    raise ValueError("Missing 'OPENAI_API_KEY' in environment variables.")
+if not all([WEAVIATE_CLUSTER_URL, WEAVIATE_API_KEY, OPENAI_API_KEY]):
+    raise ValueError("Missing required environment variables")
 
 # Connect to Weaviate
-client = weaviate.connect_to_weaviate_cloud(
-    cluster_url=WEAVIATE_CLUSTER_URL,
-    auth_credentials=AuthApiKey(api_key=WEAVIATE_API_KEY),
-    headers={"X-OpenAI-Api-Key": OPENAI_API_KEY}
+client = weaviate.Client(
+    url=WEAVIATE_CLUSTER_URL,
+    auth_client_secret=AuthApiKey(api_key=WEAVIATE_API_KEY),
+    additional_headers={
+        "X-OpenAI-Api-Key": OPENAI_API_KEY
+    }
 )
 
-# Ensure connection
-if client.is_connected():
+# Verify connection
+try:
+    client.schema.get()
     print("Connected to Weaviate successfully!")
-
-# Delete existing 'Candidate' collection if it exists
-try:
-    client.collections.delete("Candidate")
-    print("Deleted existing 'Candidate' collection.")
 except Exception as e:
-    print("No existing 'Candidate' collection to delete.")
+    print(f"Failed to connect to Weaviate: {e}")
+    raise
 
-# Define the schema for the 'Candidate' collection
+# Define the schema for the Candidate class
+schema = {
+    "class": "Candidate",
+    "vectorizer": "text2vec-openai",
+    "moduleConfig": {
+        "text2vec-openai": {
+            "model": "ada",
+            "modelVersion": "002",
+            "type": "text"
+        }
+    },
+    "properties": [
+        {"name": "name", "dataType": ["text"]},
+        {"name": "candidate_values", "dataType": ["text"]},
+        {"name": "candidate_strengths", "dataType": ["text"]},
+        {"name": "jobSearchenvironment", "dataType": ["text[]"]},
+        {"name": "skills", "dataType": ["text[]"]},
+        {"name": "education", "dataType": ["object[]"], "nestedProperties": [
+            {"name": "degree", "dataType": ["text"]},
+            {"name": "university_start_year", "dataType": ["int"]},
+            {"name": "university_end_year", "dataType": ["int"]},
+            {"name": "education_area", "dataType": ["text"]},
+            {"name": "school_name", "dataType": ["text"]}
+        ]},
+        {"name": "experiences", "dataType": ["object[]"], "nestedProperties": [
+            {"name": "title", "dataType": ["text"]},
+            {"name": "employer", "dataType": ["text"]},
+            {"name": "description", "dataType": ["text"]},
+            {"name": "is_current", "dataType": ["boolean"]},
+            {"name": "start_date", "dataType": ["date"]},
+            {"name": "left_date", "dataType": ["date"]},
+            {"name": "duration_years", "dataType": ["text"]}
+        ]},
+        {"name": "locations", "dataType": ["object[]"], "nestedProperties": [
+            {"name": "country", "dataType": ["text"]},
+            {"name": "state", "dataType": ["text"]},
+            {"name": "city", "dataType": ["text"]}
+        ]},
+        {"name": "willing_to_relocate", "dataType": ["boolean"]},
+        {"name": "mentra_profile_link", "dataType": ["text"]},
+        {"name": "candidate_activity", "dataType": ["object"], "nestedProperties": [
+            {"name": "account_age_days", "dataType": ["text"]},
+            {"name": "count_of_logins", "dataType": ["text"]},
+            {"name": "last_login", "dataType": ["date"]}
+        ]}
+    ]
+}
+
+# Delete existing schema if it exists
 try:
-    client.collections.create(
-        name="Candidate",
-        properties=[
-            Property(name="name", data_type=DataType.TEXT),
-            Property(name="candidate_values", data_type=DataType.TEXT),
-            Property(name="candidate_strengths", data_type=DataType.TEXT),
-            Property(name="jobSearchenvironment", data_type=DataType.TEXT_ARRAY),
-            Property(name="skills", data_type=DataType.TEXT_ARRAY),
-            
-            # Education as an array of objects
-            Property(
-                name="education", 
-                data_type=DataType.OBJECT_ARRAY,
-                nested_properties=[
-                    Property(name="degree", data_type=DataType.TEXT),
-                    Property(name="university_start_year", data_type=DataType.INT),
-                    Property(name="university_end_year", data_type=DataType.INT),
-                    Property(name="education_area", data_type=DataType.TEXT),
-                    Property(name="school_name", data_type=DataType.TEXT)
-                ]
-            ),
-            
-            # Experiences as an array of objects
-            Property(
-                name="experiences", 
-                data_type=DataType.OBJECT_ARRAY,
-                nested_properties=[
-                    Property(name="title", data_type=DataType.TEXT),
-                    Property(name="employer", data_type=DataType.TEXT),
-                    Property(name="description", data_type=DataType.TEXT),
-                    Property(name="is_current", data_type=DataType.BOOL),
-                    Property(name="start_date", data_type=DataType.DATE),
-                    Property(name="left_date", data_type=DataType.DATE),
-                    Property(name="duration_years", data_type=DataType.TEXT)
-                ]
-            ),
-            
-            # Locations as an array of objects
-            Property(
-                name="locations", 
-                data_type=DataType.OBJECT_ARRAY,
-                nested_properties=[
-                    Property(name="country", data_type=DataType.TEXT),
-                    Property(name="state", data_type=DataType.TEXT),
-                    Property(name="city", data_type=DataType.TEXT)
-                ]
-            ),
-            
-            Property(name="willing_to_relocate", data_type=DataType.BOOL),
-            Property(name="mentra_profile_link", data_type=DataType.TEXT),
-            
-            # Add the new candidate_activity object
-            Property(
-                name="candidate_activity",
-                data_type=DataType.OBJECT,
-                nested_properties=[
-                    Property(name="account_age_days", data_type=DataType.TEXT),
-                    Property(name="count_of_logins", data_type=DataType.TEXT),
-                    Property(name="last_login", data_type=DataType.DATE)
-                ]
-            ),
-        ],
-        vectorizer_config=Configure.Vectorizer.text2vec_openai()
-    )
-    print("Created 'Candidate' collection with OpenAI vectorizer.")
-except Exception as e:
-    print(f"Error creating 'Candidate' collection: {e}")
-    client.close()
-    exit(1)
+    client.schema.delete_class("Candidate")
+    print("Deleted existing 'Candidate' class.")
+except Exception:
+    print("No existing 'Candidate' class to delete.")
 
-def parse_date(date_str):
-    """Convert date string to proper format or return None if invalid"""
+# Create schema
+client.schema.create_class(schema)
+print("Created 'Candidate' class with OpenAI vectorizer.")
+
+def format_date(date_str):
+    """Format dates to RFC3339 and validate"""
     if not date_str:
         return None
     try:
-        return datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
-    except (ValueError, TypeError):
+        # Fix two-digit years
+        if len(date_str.split('-')[0]) == 2:
+            date_str = f"20{date_str}"
+        
+        # Validate year is reasonable (between 1900 and current year)
+        year = int(date_str.split('-')[0])
+        if year < 1900 or year > 2024:
+            print(f"Skipping invalid year in date: {date_str}")
+            return None
+            
+        return f"{date_str}T00:00:00Z"
+    except Exception as e:
+        print(f"Error processing date {date_str}: {e}")
         return None
 
-def process_candidate(candidate_data):
-    """Process and validate a single candidate's data"""
-    try:
-        # Process all education records
-        education_list = candidate_data.get('education', [])
-        processed_education = []
-        for edu in education_list:
-            if isinstance(edu, dict):
-                processed_edu = {
-                    "degree": edu.get("degree", ""),
-                    "university_start_year": int(edu.get("university_start_year", 0)) or None,
-                    "university_end_year": int(edu.get("university_end_year", 0)) or None,
-                    "education_area": edu.get("education_area", ""),
-                    "school_name": edu.get("school_name", "")
-                }
-                processed_education.append(processed_edu)
-
-        # Process experiences
-        experiences = candidate_data.get('experiences', [])
-        processed_experiences = []
-        for exp in experiences:
-            processed_exp = {
-                "title": exp.get("title", ""),
-                "employer": exp.get("employer", ""),
-                "description": exp.get("description", ""),
-                "is_current": bool(exp.get("is_current", False)),
-                "start_date": parse_date(exp.get("start_date")),
-                "left_date": parse_date(exp.get("left_date")),
-                "duration_years": str(exp.get("duration_years", ""))
-            }
-            processed_experiences.append(processed_exp)
-
-        # Process locations
-        locations = candidate_data.get('locations', [])
-        processed_locations = []
-        for loc in locations:
-            processed_loc = {
-                "country": loc.get("country", ""),
-                "state": loc.get("state", ""),
-                "city": loc.get("city", "")
-            }
-            processed_locations.append(processed_loc)
-
-        # Process candidate_activity
-        candidate_activity = candidate_data.get('candidate_activity', {})
-        processed_activity = {
-            "account_age_days": str(candidate_activity.get("account_age_days", "")),
-            "count_of_logins": str(candidate_activity.get("count_of_logins", "")),
-            "last_login": parse_date(candidate_activity.get("last_login"))
-        }
-
-        # Construct the final candidate object
-        return {
-            "name": candidate_data.get("name", ""),
-            "candidate_values": candidate_data.get("candidate_values", ""),
-            "candidate_strengths": candidate_data.get("candidate_strengths", ""),
-            "jobSearchenvironment": candidate_data.get("jobSearchenvironment", []),
-            "skills": candidate_data.get("skills", []),
-            "education": processed_education,
-            "experiences": processed_experiences,
-            "locations": processed_locations,
-            "willing_to_relocate": bool(candidate_data.get("willing_to_relocate", False)),
-            "mentra_profile_link": candidate_data.get("mentra_profile_link", ""),
-            "candidate_activity": processed_activity
-        }
-    except Exception as e:
-        print(f"Error processing candidate {candidate_data.get('name', 'Unknown')}: {e}")
-        raise
-
-def read_json_file(filepath):
-    """Read JSON file with multiple objects, one per line"""
-    data = []
-    with open(filepath, 'r') as file:
-        for line_number, line in enumerate(file, 1):
-            try:
-                # Parse each line as a separate JSON object
-                json_obj = json.loads(line.strip())
-                data.append(json_obj)
-            except json.JSONDecodeError as e:
-                print(f"Error parsing JSON at line {line_number}")
-                print(f"Line content: {line[:200]}...")
-                print(f"Error details: {str(e)}")
-                raise  # Re-raise the exception to stop processing
+def format_candidate_data(candidate):
+    """Format data to match Weaviate requirements"""
     
-    print(f"Successfully parsed {len(data)} candidate records")
-    return data
+    # Process experiences dates
+    if 'experiences' in candidate:
+        for exp in candidate['experiences']:
+            if 'start_date' in exp:
+                exp['start_date'] = format_date(exp['start_date'])
+            if 'left_date' in exp:
+                exp['left_date'] = format_date(exp['left_date'])
+    
+    # Process candidate_activity
+    if 'candidate_activity' in candidate:
+        activity = candidate['candidate_activity']
+        if 'account_age_days' in activity:
+            activity['account_age_days'] = str(activity['account_age_days'])
+        if 'count_of_logins' in activity:
+            activity['count_of_logins'] = str(activity['count_of_logins'])
+        if 'last_login' in activity:
+            activity['last_login'] = format_date(activity['last_login'])
+    
+    return candidate
 
-# Load the data
+# Load and insert the data
 try:
-    candidates = read_json_file('mentra_data.json')
-except json.JSONDecodeError:
-    print("Failed to parse JSON file. Stopping execution.")
-    raise
-
-try:
-    for candidate_data in candidates:
-        processed_candidate = process_candidate(candidate_data)
+    with open('mentra_data.json', 'r') as file:
+        batch = client.batch.configure(batch_size=100)
+        inserted_count = 0
         
-        if processed_candidate:
-            try:
-                # Insert candidate into collection
-                uuid = client.collections.get("Candidate").data.insert(processed_candidate)
-                print(f"Inserted: {processed_candidate['name']} with UUID: {uuid}")
-            except Exception as e:
-                print(f"Error inserting {processed_candidate['name']}: {e}")
-        else:
-            print(f"Skipping invalid candidate data")
+        with batch:
+            for line in file:
+                try:
+                    candidate = json.loads(line.strip())
+                    formatted_candidate = format_candidate_data(candidate)
+                    client.batch.add_data_object(
+                        data_object=formatted_candidate,
+                        class_name="Candidate"
+                    )
+                    inserted_count += 1
+                    print(f"Processing {inserted_count}: {candidate.get('name', 'Unknown')}")
+                except Exception as e:
+                    print(f"Error processing candidate: {e}")
 
-except Exception as e:
-    print(f"Unexpected error: {e}")
-finally:
-    # Close the client connection
-    client.close()
-    print("Connection to Weaviate closed.")
+        # Verify the insertion
+        result = client.query.get(
+            "Candidate", 
+            ["name"]  # Specify at least one property to return
+        ).with_limit(25000).do()  # Increase limit to cover all records
+        actual_count = len(result['data']['Get']['Candidate'])
+        print(f"\nSummary:")
+        print(f"Processed: {inserted_count}")
+        print(f"Actually inserted: {actual_count}")
+
+    # Detailed verification
+    print("\nVerifying data in Weaviate...")
+    
+    # Count total records
+    result = client.query.get(
+        "Candidate", 
+        ["name"]
+    ).with_limit(25000).do()
+    actual_count = len(result['data']['Get']['Candidate'])
+    
+    # Sample some records to verify data quality
+    sample = client.query.get(
+        "Candidate", 
+        ["name", "skills", "experiences {title employer}", "candidate_activity {last_login}"]
+    ).with_limit(5).do()
+    
+    print(f"\nSummary:")
+    print(f"Processed in this run: {inserted_count}")
+    print(f"Total records in Weaviate: {actual_count}")
+    print(f"\nSample of records in Weaviate:")
+    for candidate in sample['data']['Get']['Candidate']:
+        print(f"\nName: {candidate['name']}")
+        print(f"Skills: {', '.join(candidate['skills'][:3])}...")
+        if candidate['experiences']:
+            print(f"Latest role: {candidate['experiences'][0]['title']} at {candidate['experiences'][0]['employer']}")
+        if candidate['candidate_activity']:
+            print(f"Last login: {candidate['candidate_activity']['last_login']}")
+    print("\nData import completed.")
+
+except FileNotFoundError:
+    print("mentra_data.json file not found")
+    raise
