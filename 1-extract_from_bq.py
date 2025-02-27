@@ -41,8 +41,8 @@ def convert_row(row):
         elif key in ['education', 'experiences', 'locations']:
             # Arrays of structs
             converted[key] = value or []
-        elif key == 'candidate_activity':
-            # Single struct
+        elif key in ['candidate_activity', 'contact_info']:
+            # Single structs
             converted[key] = value if value else {}
         else:
             # Simple scalar values

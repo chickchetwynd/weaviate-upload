@@ -46,6 +46,10 @@ schema = {
     },
     "properties": [
         {"name": "name", "dataType": ["text"]},
+        {"name": "contact_info", "dataType": ["object"], "nestedProperties": [
+            {"name": "phone", "dataType": ["text"]},
+            {"name": "email", "dataType": ["text"]}
+        ]},
         {"name": "candidate_values", "dataType": ["text"]},
         {"name": "candidate_strengths", "dataType": ["text"]},
         {"name": "jobSearchenvironment", "dataType": ["text[]"]},
