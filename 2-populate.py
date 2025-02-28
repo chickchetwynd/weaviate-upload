@@ -3,6 +3,7 @@ import json
 import weaviate
 from dotenv import load_dotenv
 from weaviate.auth import AuthApiKey
+from datetime import datetime
 
 # Load environment variables from .env
 load_dotenv(".env")
@@ -22,7 +23,8 @@ client = weaviate.Client(
     auth_client_secret=AuthApiKey(api_key=WEAVIATE_API_KEY),
     additional_headers={
         "X-OpenAI-Api-Key": OPENAI_API_KEY
-    }
+    },
+    timeout_config=(5, 60)  # (connect timeout, read timeout) in seconds
 )
 
 # Verify connection
@@ -105,13 +107,25 @@ def format_date(date_str):
         if len(date_str.split('-')[0]) == 2:
             date_str = f"20{date_str}"
         
-        # Validate year is reasonable (between 1900 and current year)
-        year = int(date_str.split('-')[0])
-        if year < 1900 or year > 2024:
+        # Split the date parts
+        parts = date_str.split('-')
+        
+        # Handle different date formats
+        if len(parts) == 1:  # Just year
+            date_str = f"{date_str}-01-01"
+        elif len(parts) == 2:  # Year and month
+            date_str = f"{date_str}-01"
+        
+        # Validate year is reasonable (between 1900 and 5 years from now)
+        current_year = datetime.now().year
+        max_year = current_year + 5
+        year = int(parts[0])
+        if year < 1900 or year > max_year:
             print(f"Skipping invalid year in date: {date_str}")
             return None
             
-        return f"{date_str}T00:00:00Z"
+        # Return RFC3339 formatted date
+        return f"{date_str}T00:00:00+00:00"
     except Exception as e:
         print(f"Error processing date {date_str}: {e}")
         return None
@@ -142,61 +156,34 @@ def format_candidate_data(candidate):
 # Load and insert the data
 try:
     with open('mentra_data.json', 'r') as file:
-        batch = client.batch.configure(batch_size=100)
+        # Configure batch settings for better reliability
+        batch = client.batch(
+            batch_size=100,
+            dynamic=True,  # Dynamically adjust batch size based on performance
+            timeout_retries=3  # Simple retry configuration
+        )
         inserted_count = 0
         
-        with batch:
-            for line in file:
-                try:
-                    candidate = json.loads(line.strip())
-                    formatted_candidate = format_candidate_data(candidate)
-                    client.batch.add_data_object(
-                        data_object=formatted_candidate,
-                        class_name="Candidate"
-                    )
-                    inserted_count += 1
-                    print(f"Processing {inserted_count}: {candidate.get('name', 'Unknown')}")
-                except Exception as e:
-                    print(f"Error processing candidate: {e}")
+        for line in file:
+            try:
+                candidate = json.loads(line.strip())
+                formatted_candidate = format_candidate_data(candidate)
+                batch.add_data_object(
+                    data_object=formatted_candidate,
+                    class_name="Candidate"
+                )
+                inserted_count += 1
+                print(f"Processing {inserted_count}: {candidate.get('name', 'Unknown')}")
+            except Exception as e:
+                print(f"Error processing candidate: {str(e)}")
 
-        # Verify the insertion
-        result = client.query.get(
-            "Candidate", 
-            ["name"]  # Specify at least one property to return
-        ).with_limit(25000).do()  # Increase limit to cover all records
-        actual_count = len(result['data']['Get']['Candidate'])
+        # Verify the insertion using aggregation
+        result = client.query.aggregate("Candidate").with_meta_count().do()
+        actual_count = result['data']['Aggregate']['Candidate'][0]['meta']['count']
+        
         print(f"\nSummary:")
-        print(f"Processed: {inserted_count}")
-        print(f"Actually inserted: {actual_count}")
-
-    # Detailed verification
-    print("\nVerifying data in Weaviate...")
-    
-    # Count total records
-    result = client.query.get(
-        "Candidate", 
-        ["name"]
-    ).with_limit(25000).do()
-    actual_count = len(result['data']['Get']['Candidate'])
-    
-    # Sample some records to verify data quality
-    sample = client.query.get(
-        "Candidate", 
-        ["name", "skills", "experiences {title employer}", "candidate_activity {last_login}"]
-    ).with_limit(5).do()
-    
-    print(f"\nSummary:")
-    print(f"Processed in this run: {inserted_count}")
-    print(f"Total records in Weaviate: {actual_count}")
-    print(f"\nSample of records in Weaviate:")
-    for candidate in sample['data']['Get']['Candidate']:
-        print(f"\nName: {candidate['name']}")
-        print(f"Skills: {', '.join(candidate['skills'][:3])}...")
-        if candidate['experiences']:
-            print(f"Latest role: {candidate['experiences'][0]['title']} at {candidate['experiences'][0]['employer']}")
-        if candidate['candidate_activity']:
-            print(f"Last login: {candidate['candidate_activity']['last_login']}")
-    print("\nData import completed.")
+        print(f"Processed in this run: {inserted_count}")
+        print(f"Total records in Weaviate: {actual_count}")
 
 except FileNotFoundError:
     print("mentra_data.json file not found")

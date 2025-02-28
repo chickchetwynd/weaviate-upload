@@ -5,6 +5,7 @@ key.json
 
 # data files
 mentra_data.json
+failed_candidates.json
 
 # Python
 __pycache__/
